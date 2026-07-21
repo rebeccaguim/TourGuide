@@ -1,4 +1,5 @@
 com\openclassrooms\tourguide\TourguideApplication.class
+com\openclassrooms\tourguide\user\NearbyAttraction.class
 com\openclassrooms\tourguide\user\User.class
 com\openclassrooms\tourguide\service\RewardsService.class
 com\openclassrooms\tourguide\user\UserPreferences.class
