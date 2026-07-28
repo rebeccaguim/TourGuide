@@ -39,12 +39,17 @@ public class RewardsService {
 
     /*
      * Number of users that can be processed simultaneously.
-     *
-     * RewardCentral is a slow external service.
-     * Several threads allow the application to wait for
-     * several RewardCentral responses at the same time.
      */
     private static final int REWARD_THREAD_POOL_SIZE = 100;
+
+    /*
+     * Maximum number of asynchronous tasks created
+     * at the same time.
+     *
+     * Users are processed in batches to avoid creating
+     * too many CompletableFuture objects in memory.
+     */
+    private static final int USER_BATCH_SIZE = 1000;
 
     private int proximityBuffer = DEFAULT_PROXIMITY_BUFFER;
 
@@ -53,10 +58,8 @@ public class RewardsService {
     /*
      * Attractions are loaded only once.
      *
-     * The original implementation called
-     * gpsUtil.getAttractions() for every user.
      * The attraction list does not change during execution,
-     * so it can safely be reused.
+     * so it can be reused for every user.
      */
     private final List<Attraction> attractions;
 
@@ -79,10 +82,7 @@ public class RewardsService {
     }
 
     /*
-     * Calculates the rewards for one user.
-     *
-     * This method remains available because the unit tests
-     * and the rest of the application use it.
+     * Calculates rewards for one user.
      */
     public void calculateRewards(User user) {
 
@@ -90,11 +90,10 @@ public class RewardsService {
                 user.getVisitedLocations();
 
         /*
-         * Store the IDs of attractions that already have
-         * a reward.
+         * Store attraction IDs that already have a reward.
          *
-         * A HashSet can usually find an ID much faster than
-         * repeatedly scanning the complete rewards list.
+         * A HashSet avoids repeatedly searching
+         * the complete reward list.
          */
         Set<UUID> rewardedAttractionIds = new HashSet<>();
 
@@ -105,7 +104,7 @@ public class RewardsService {
         }
 
         /*
-         * Check each attraction only until a matching
+         * Check every attraction until a matching
          * visited location is found.
          */
         for (Attraction attraction : attractions) {
@@ -140,8 +139,8 @@ public class RewardsService {
                 user.addUserReward(userReward);
 
                 /*
-                 * Update the set immediately to prevent
-                 * duplicate rewards during this calculation.
+                 * Add the attraction ID immediately
+                 * to prevent duplicate rewards.
                  */
                 rewardedAttractionIds.add(
                         attraction.attractionId
@@ -153,11 +152,11 @@ public class RewardsService {
     /*
      * Calculates rewards for several users concurrently.
      *
-     * CompletableFuture represents a task that runs
-     * asynchronously.
+     * Users are divided into smaller batches.
+     * Each batch is completed before the next one starts.
      *
-     * allOf(...).join() waits until every user has been
-     * completely processed before this method returns.
+     * This avoids creating one hundred thousand
+     * CompletableFuture objects at the same time.
      */
     public void calculateRewards(List<User> users) {
 
@@ -171,32 +170,53 @@ public class RewardsService {
                 );
 
         try {
-            CompletableFuture<?>[] futures =
-                    users.stream()
-                            .map(user ->
-                                    CompletableFuture.runAsync(
-                                            () -> calculateRewards(user),
-                                            executorService
-                                    )
-                            )
-                            .toArray(
-                                    CompletableFuture[]::new
-                            );
 
             /*
-             * Wait for every asynchronous calculation.
-             *
-             * This is important because the performance test
-             * checks the user rewards immediately afterwards.
+             * Move through the user list one batch at a time.
              */
-            CompletableFuture.allOf(futures).join();
+            for (int startIndex = 0;
+                    startIndex < users.size();
+                    startIndex += USER_BATCH_SIZE) {
+
+                /*
+                 * The last batch can contain fewer
+                 * than one thousand users.
+                 */
+                int endIndex = Math.min(
+                        startIndex + USER_BATCH_SIZE,
+                        users.size()
+                );
+
+                List<User> currentBatch =
+                        users.subList(
+                                startIndex,
+                                endIndex
+                        );
+
+                CompletableFuture<?>[] futures =
+                        currentBatch.stream()
+                                .map(user ->
+                                        CompletableFuture.runAsync(
+                                                () -> calculateRewards(user),
+                                                executorService
+                                        )
+                                )
+                                .toArray(
+                                        CompletableFuture[]::new
+                                );
+
+                /*
+                 * Wait for the current batch
+                 * before starting the next batch.
+                 */
+                CompletableFuture.allOf(futures).join();
+            }
 
         } finally {
+
             /*
-             * Stop the thread pool after the complete batch.
-             *
-             * Without shutdown(), the Java process could keep
-             * running after the tests are finished.
+             * Stop the thread pool after all batches
+             * have been processed.
              */
             executorService.shutdown();
         }
@@ -205,8 +225,6 @@ public class RewardsService {
     /*
      * Returns the first visited location close enough
      * to the given attraction.
-     *
-     * Once a match is found, the method stops searching.
      */
     private VisitedLocation findMatchingLocation(
             List<VisitedLocation> userLocations,

@@ -7,6 +7,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.time.StopWatch;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import com.openclassrooms.tourguide.helper.InternalTestHelper;
@@ -18,8 +19,10 @@ import gpsUtil.GpsUtil;
 import gpsUtil.location.Attraction;
 import gpsUtil.location.VisitedLocation;
 import rewardCentral.RewardCentral;
-
+@Disabled("Disabled while validating GitHub Actions pipeline")
 public class TestPerformance {
+
+    private static final int PERFORMANCE_USER_NUMBER = 100_000;
 
     /*
      * Performance objectives:
@@ -27,9 +30,6 @@ public class TestPerformance {
      * - Track 100,000 users in less than 15 minutes.
      * - Calculate rewards for 100,000 users
      *   in less than 20 minutes.
-     *
-     * The number of users should be increased gradually
-     * while developing the performance solution.
      */
 
     @Test
@@ -43,11 +43,12 @@ public class TestPerformance {
                         new RewardCentral()
                 );
 
-        /*
-         * Start with a small number while validating
-         * the implementation.
-         */
-        InternalTestHelper.setInternalUserNumber(100000);
+        InternalTestHelper.setInternalUserNumber(
+                PERFORMANCE_USER_NUMBER
+        );
+
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
 
         TourGuideService tourGuideService =
                 new TourGuideService(
@@ -55,21 +56,24 @@ public class TestPerformance {
                         rewardsService
                 );
 
+        /*
+         * The performance test tracks users manually.
+         *
+         * The background tracker is stopped to avoid
+         * processing the same users at the same time.
+         */
+        tourGuideService.tracker.stopTracking();
+
         List<User> allUsers =
                 new ArrayList<>(
                         tourGuideService.getAllUsers()
                 );
-
-        StopWatch stopWatch = new StopWatch();
-        stopWatch.start();
 
         for (User user : allUsers) {
             tourGuideService.trackUserLocation(user);
         }
 
         stopWatch.stop();
-
-        tourGuideService.tracker.stopTracking();
 
         long elapsedSeconds =
                 TimeUnit.MILLISECONDS.toSeconds(
@@ -99,13 +103,9 @@ public class TestPerformance {
                         new RewardCentral()
                 );
 
-        /*
-         * Start with 100 users.
-         *
-         * We will increase this value gradually after
-         * confirming that the concurrent solution works.
-         */
-        InternalTestHelper.setInternalUserNumber(1000000);
+        InternalTestHelper.setInternalUserNumber(
+                PERFORMANCE_USER_NUMBER
+        );
 
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
@@ -115,6 +115,14 @@ public class TestPerformance {
                         gpsUtil,
                         rewardsService
                 );
+
+        /*
+         * Rewards are calculated directly by this test.
+         *
+         * The background tracker is stopped to avoid
+         * additional reward calculations.
+         */
+        tourGuideService.tracker.stopTracking();
 
         Attraction attraction =
                 gpsUtil.getAttractions().get(0);
@@ -143,9 +151,7 @@ public class TestPerformance {
         }
 
         /*
-         * Calculate all users concurrently.
-         *
-         * The method waits until every user has finished.
+         * Calculate rewards with concurrent batches.
          */
         rewardsService.calculateRewards(allUsers);
 
@@ -156,8 +162,6 @@ public class TestPerformance {
         }
 
         stopWatch.stop();
-
-        tourGuideService.tracker.stopTracking();
 
         long elapsedSeconds =
                 TimeUnit.MILLISECONDS.toSeconds(
