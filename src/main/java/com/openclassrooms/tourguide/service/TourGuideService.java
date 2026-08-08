@@ -10,11 +10,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.openclassrooms.tourguide.helper.InternalTestHelper;
@@ -33,8 +37,20 @@ import tripPricer.TripPricer;
 @Service
 public class TourGuideService {
 
-    private final Logger logger =
+    private static final Logger logger =
             LoggerFactory.getLogger(TourGuideService.class);
+
+    /*
+     * Maximum number of users processed at the same time
+     * during a location tracking operation.
+     */
+    private static final int LOCATION_THREAD_POOL_SIZE = 100;
+
+    /*
+     * Maximum number of asynchronous tasks created
+     * at the same time.
+     */
+    private static final int LOCATION_BATCH_SIZE = 1_000;
 
     private final GpsUtil gpsUtil;
     private final RewardsService rewardsService;
@@ -42,13 +58,42 @@ public class TourGuideService {
     private final TripPricer tripPricer =
             new TripPricer();
 
+    /*
+     * The tracker can be null during performance tests
+     * when background tracking is disabled.
+     */
     public final Tracker tracker;
 
     boolean testMode = true;
 
+    /*
+     * Constructor used by Spring Boot and normal unit tests.
+     *
+     * The background tracker starts automatically.
+     */
+    @Autowired
     public TourGuideService(
             GpsUtil gpsUtil,
             RewardsService rewardsService) {
+
+        this(
+                gpsUtil,
+                rewardsService,
+                true
+        );
+    }
+
+    /*
+     * Constructor used when the background tracker
+     * must be enabled or disabled.
+     *
+     * Performance tests use false to avoid processing
+     * the same users twice.
+     */
+    public TourGuideService(
+            GpsUtil gpsUtil,
+            RewardsService rewardsService,
+            boolean startTracker) {
 
         this.gpsUtil = gpsUtil;
         this.rewardsService = rewardsService;
@@ -64,8 +109,12 @@ public class TourGuideService {
             logger.debug("Finished initializing users");
         }
 
-        tracker = new Tracker(this);
-        addShutDownHook();
+        if (startTracker) {
+            tracker = new Tracker(this);
+            addShutDownHook();
+        } else {
+            tracker = null;
+        }
     }
 
     public List<UserReward> getUserRewards(User user) {
@@ -101,8 +150,13 @@ public class TourGuideService {
          * Do not replace an existing user
          * with the same username.
          */
-        if (!internalUserMap.containsKey(user.getUserName())) {
-            internalUserMap.put(user.getUserName(), user);
+        if (!internalUserMap.containsKey(
+                user.getUserName())) {
+
+            internalUserMap.put(
+                    user.getUserName(),
+                    user
+            );
         }
     }
 
@@ -111,8 +165,9 @@ public class TourGuideService {
         int cumulativeRewardPoints =
                 user.getUserRewards()
                         .stream()
-                        .mapToInt(reward ->
-                                reward.getRewardPoints())
+                        .mapToInt(
+                                UserReward::getRewardPoints
+                        )
                         .sum();
 
         List<Provider> providers =
@@ -133,21 +188,29 @@ public class TourGuideService {
         return providers;
     }
 
+    /*
+     * Tracks the location of one user.
+     */
     public VisitedLocation trackUserLocation(User user) {
 
         /*
-         * Request a new user location.
+         * Request a new user location from GpsUtil.
          */
         VisitedLocation visitedLocation =
-                gpsUtil.getUserLocation(user.getUserId());
+                gpsUtil.getUserLocation(
+                        user.getUserId()
+                );
 
         /*
          * Save the new location in the user history.
          */
-        user.addToVisitedLocations(visitedLocation);
+        user.addToVisitedLocations(
+                visitedLocation
+        );
 
         /*
-         * Calculate the user's possible rewards.
+         * Calculate rewards after updating
+         * the user's location.
          */
         rewardsService.calculateRewards(user);
 
@@ -155,8 +218,83 @@ public class TourGuideService {
     }
 
     /*
-     * This method is kept because the existing unit test
-     * expects a List of Attraction objects.
+     * Tracks several users concurrently.
+     *
+     * The multithreading is implemented in the service,
+     * not inside the performance test.
+     */
+    public void trackAllUsersLocations(
+            List<User> users) {
+
+        if (users == null || users.isEmpty()) {
+            return;
+        }
+
+        ExecutorService executorService =
+                Executors.newFixedThreadPool(
+                        LOCATION_THREAD_POOL_SIZE
+                );
+
+        try {
+
+            /*
+             * Process the users one batch at a time.
+             *
+             * This avoids creating 100,000 futures
+             * in memory at the same time.
+             */
+            for (int startIndex = 0;
+                    startIndex < users.size();
+                    startIndex += LOCATION_BATCH_SIZE) {
+
+                int endIndex = Math.min(
+                        startIndex + LOCATION_BATCH_SIZE,
+                        users.size()
+                );
+
+                List<User> currentBatch =
+                        users.subList(
+                                startIndex,
+                                endIndex
+                        );
+
+                CompletableFuture<?>[] futures =
+                        currentBatch.stream()
+                                .map(user ->
+                                        CompletableFuture.runAsync(
+                                                () ->
+                                                        trackUserLocation(
+                                                                user
+                                                        ),
+                                                executorService
+                                        )
+                                )
+                                .toArray(
+                                        CompletableFuture[]::new
+                                );
+
+                /*
+                 * Wait for the current batch
+                 * before starting the next one.
+                 */
+                CompletableFuture
+                        .allOf(futures)
+                        .join();
+            }
+
+        } finally {
+
+            /*
+             * Stop the thread pool after all users
+             * have been processed.
+             */
+            executorService.shutdown();
+        }
+    }
+
+    /*
+     * Returns the five closest attractions,
+     * regardless of their distance.
      */
     public List<Attraction> getNearByAttractions(
             VisitedLocation visitedLocation) {
@@ -177,21 +315,24 @@ public class TourGuideService {
     }
 
     /*
-     * Build the complete response required
-     * by the getNearbyAttractions endpoint.
+     * Builds the complete response required
+     * by the nearby-attractions endpoint.
      */
-    public List<NearbyAttraction> getNearbyAttractionsDetails(
-            VisitedLocation visitedLocation) {
+    public List<NearbyAttraction>
+            getNearbyAttractionsDetails(
+                    VisitedLocation visitedLocation) {
 
         /*
          * First, find the five nearest attractions.
          */
         List<Attraction> nearestAttractions =
-                getNearByAttractions(visitedLocation);
+                getNearByAttractions(
+                        visitedLocation
+                );
 
         /*
-         * Then, convert every Attraction into
-         * a complete NearbyAttraction response object.
+         * Convert each Attraction into
+         * a complete response object.
          */
         return nearestAttractions
                 .stream()
@@ -204,10 +345,11 @@ public class TourGuideService {
                             );
 
                     int rewardPoints =
-                            rewardsService.getAttractionRewardPoints(
-                                    attraction,
-                                    visitedLocation.userId
-                            );
+                            rewardsService
+                                    .getAttractionRewardPoints(
+                                            attraction,
+                                            visitedLocation.userId
+                                    );
 
                     return new NearbyAttraction(
                             attraction.attractionName,
@@ -229,8 +371,12 @@ public class TourGuideService {
          * when the application shuts down.
          */
         Runtime.getRuntime().addShutdownHook(
-                new Thread(() ->
-                        tracker.stopTracking())
+                new Thread(() -> {
+
+                    if (tracker != null) {
+                        tracker.stopTracking();
+                    }
+                })
         );
     }
 
@@ -244,7 +390,7 @@ public class TourGuideService {
             "test-server-api-key";
 
     /*
-     * Internal test users are stored in memory.
+     * Internal users are stored in memory.
      */
     private final Map<String, User> internalUserMap =
             new HashMap<>();
@@ -253,7 +399,8 @@ public class TourGuideService {
 
         IntStream.range(
                 0,
-                InternalTestHelper.getInternalUserNumber()
+                InternalTestHelper
+                        .getInternalUserNumber()
         ).forEach(i -> {
 
             String userName =
@@ -275,36 +422,44 @@ public class TourGuideService {
 
             generateUserLocationHistory(user);
 
-            internalUserMap.put(userName, user);
+            internalUserMap.put(
+                    userName,
+                    user
+            );
         });
 
         logger.debug(
                 "Created "
-                        + InternalTestHelper.getInternalUserNumber()
+                        + InternalTestHelper
+                                .getInternalUserNumber()
                         + " internal test users."
         );
     }
 
-    private void generateUserLocationHistory(User user) {
+    private void generateUserLocationHistory(
+            User user) {
 
         /*
          * Create three random visited locations
          * for every internal test user.
          */
-        IntStream.range(0, 3).forEach(i -> {
+        IntStream.range(0, 3)
+                .forEach(i -> {
 
-            VisitedLocation visitedLocation =
-                    new VisitedLocation(
-                            user.getUserId(),
-                            new Location(
-                                    generateRandomLatitude(),
-                                    generateRandomLongitude()
-                            ),
-                            getRandomTime()
+                    VisitedLocation visitedLocation =
+                            new VisitedLocation(
+                                    user.getUserId(),
+                                    new Location(
+                                            generateRandomLatitude(),
+                                            generateRandomLongitude()
+                                    ),
+                                    getRandomTime()
+                            );
+
+                    user.addToVisitedLocations(
+                            visitedLocation
                     );
-
-            user.addToVisitedLocations(visitedLocation);
-        });
+                });
     }
 
     private double generateRandomLongitude() {
@@ -314,17 +469,22 @@ public class TourGuideService {
 
         return minimumLongitude
                 + new Random().nextDouble()
-                * (maximumLongitude - minimumLongitude);
+                * (maximumLongitude
+                - minimumLongitude);
     }
 
     private double generateRandomLatitude() {
 
-        double minimumLatitude = -85.05112878;
-        double maximumLatitude = 85.05112878;
+        double minimumLatitude =
+                -85.05112878;
+
+        double maximumLatitude =
+                85.05112878;
 
         return minimumLatitude
                 + new Random().nextDouble()
-                * (maximumLatitude - minimumLatitude);
+                * (maximumLatitude
+                - minimumLatitude);
     }
 
     private Date getRandomTime() {
@@ -332,11 +492,14 @@ public class TourGuideService {
         LocalDateTime localDateTime =
                 LocalDateTime.now()
                         .minusDays(
-                                new Random().nextInt(30)
+                                new Random()
+                                        .nextInt(30)
                         );
 
         return Date.from(
-                localDateTime.toInstant(ZoneOffset.UTC)
+                localDateTime.toInstant(
+                        ZoneOffset.UTC
+                )
         );
     }
 }
