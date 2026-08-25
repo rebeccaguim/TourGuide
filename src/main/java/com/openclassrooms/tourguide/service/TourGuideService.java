@@ -338,11 +338,16 @@ public class TourGuideService {
                 .stream()
                 .map(attraction -> {
 
-                    double distanceInMiles =
+                    /*
+                     * getDistance() returns miles.
+                     * Convert the distance to kilometers
+                     * for the API response.
+                     */
+                    double distanceInKilometers =
                             rewardsService.getDistance(
                                     visitedLocation.location,
                                     attraction
-                            );
+                            ) * 1.60934;
 
                     int rewardPoints =
                             rewardsService
@@ -357,7 +362,7 @@ public class TourGuideService {
                             attraction.longitude,
                             visitedLocation.location.latitude,
                             visitedLocation.location.longitude,
-                            distanceInMiles,
+                            distanceInKilometers,
                             rewardPoints
                     );
                 })

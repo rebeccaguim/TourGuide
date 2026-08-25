@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report.xsd" version="3.0.2" name="com.openclassrooms.tourguide.TestPerformance" time="1.491" tests="2" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report.xsd" version="3.0.2" name="com.openclassrooms.tourguide.TestRewardsService" time="14.329" tests="3" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="17"/>
     <property name="sun.cpu.isalist" value="amd64"/>
@@ -56,14 +56,13 @@
     <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
     <property name="java.class.version" value="61.0"/>
   </properties>
-  <testcase name="highVolumeTrackLocation" classname="com.openclassrooms.tourguide.TestPerformance" time="0.414">
-    <system-out><![CDATA[15:16:02.515 [main] INFO com.openclassrooms.tourguide.service.TourGuideService -- TestMode enabled
-highVolumeTrackLocation: Time Elapsed: 0 seconds.
+  <testcase name="nearAllAttractions" classname="com.openclassrooms.tourguide.TestRewardsService" time="13.975">
+    <system-out><![CDATA[15:16:03.756 [main] INFO com.openclassrooms.tourguide.service.TourGuideService -- TestMode enabled
 ]]></system-out>
   </testcase>
-  <testcase name="highVolumeGetRewards" classname="com.openclassrooms.tourguide.TestPerformance" time="1.05">
-    <system-out><![CDATA[15:16:02.695 [main] INFO com.openclassrooms.tourguide.service.TourGuideService -- TestMode enabled
-highVolumeGetRewards: Time Elapsed: 0 seconds.
+  <testcase name="userGetRewards" classname="com.openclassrooms.tourguide.TestRewardsService" time="0.279">
+    <system-out><![CDATA[15:16:17.772 [main] INFO com.openclassrooms.tourguide.service.TourGuideService -- TestMode enabled
 ]]></system-out>
   </testcase>
+  <testcase name="isWithinAttractionProximity" classname="com.openclassrooms.tourguide.TestRewardsService" time="0.055"/>
 </testsuite>
