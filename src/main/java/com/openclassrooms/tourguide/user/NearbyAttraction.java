@@ -1,5 +1,9 @@
 package com.openclassrooms.tourguide.user;
 
+/**
+ * Contains all information required for one nearby tourist attraction,
+ * including its location, the user's location, the distance and reward points.
+ */
 public class NearbyAttraction {
 
     private final String attractionName;
@@ -10,20 +14,16 @@ public class NearbyAttraction {
     private final double userLatitude;
     private final double userLongitude;
 
-    private final double distanceInMiles;
+    private final double distanceInKilometers;
     private final int rewardPoints;
 
-    /*
-     * This object contains all information required
-     * for one recommended tourist attraction.
-     */
     public NearbyAttraction(
             String attractionName,
             double attractionLatitude,
             double attractionLongitude,
             double userLatitude,
             double userLongitude,
-            double distanceInMiles,
+            double distanceInKilometers,
             int rewardPoints) {
 
         this.attractionName = attractionName;
@@ -31,7 +31,7 @@ public class NearbyAttraction {
         this.attractionLongitude = attractionLongitude;
         this.userLatitude = userLatitude;
         this.userLongitude = userLongitude;
-        this.distanceInMiles = distanceInMiles;
+        this.distanceInKilometers = distanceInKilometers;
         this.rewardPoints = rewardPoints;
     }
 
@@ -55,8 +55,8 @@ public class NearbyAttraction {
         return userLongitude;
     }
 
-    public double getDistanceInMiles() {
-        return distanceInMiles;
+    public double getDistanceInKilometers() {
+        return distanceInKilometers;
     }
 
     public int getRewardPoints() {

@@ -12,7 +12,12 @@ import org.slf4j.LoggerFactory;
 import com.openclassrooms.tourguide.service.TourGuideService;
 import com.openclassrooms.tourguide.user.User;
 
+/**
+ * Runs location tracking in the background at a fixed interval.
+ * The tracker periodically updates the location of all TourGuide users.
+ */
 public class Tracker extends Thread {
+
 	private Logger logger = LoggerFactory.getLogger(Tracker.class);
 	private static final long trackingPollingInterval = TimeUnit.MINUTES.toSeconds(5);
 	private final ExecutorService executorService = Executors.newSingleThreadExecutor();
@@ -26,7 +31,7 @@ public class Tracker extends Thread {
 	}
 
 	/**
-	 * Assures to shut down the Tracker thread
+	 * Stops the background tracking process and shuts down the executor.
 	 */
 	public void stopTracking() {
 		stop = true;
@@ -36,6 +41,7 @@ public class Tracker extends Thread {
 	@Override
 	public void run() {
 		StopWatch stopWatch = new StopWatch();
+
 		while (true) {
 			if (Thread.currentThread().isInterrupted() || stop) {
 				logger.debug("Tracker stopping");
@@ -44,11 +50,17 @@ public class Tracker extends Thread {
 
 			List<User> users = tourGuideService.getAllUsers();
 			logger.debug("Begin Tracker. Tracking " + users.size() + " users.");
+
 			stopWatch.start();
 			users.forEach(u -> tourGuideService.trackUserLocation(u));
 			stopWatch.stop();
-			logger.debug("Tracker Time Elapsed: " + TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime()) + " seconds.");
+
+			logger.debug("Tracker Time Elapsed: "
+					+ TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime())
+					+ " seconds.");
+
 			stopWatch.reset();
+
 			try {
 				logger.debug("Tracker sleeping");
 				TimeUnit.SECONDS.sleep(trackingPollingInterval);
@@ -56,6 +68,5 @@ public class Tracker extends Thread {
 				break;
 			}
 		}
-
 	}
 }

@@ -1,5 +1,8 @@
 package com.openclassrooms.tourguide.user;
 
+/**
+ * Stores the user's travel preferences used to generate personalized trip deals.
+ */
 public class UserPreferences {
 	
 	private int attractionProximity = Integer.MAX_VALUE;
